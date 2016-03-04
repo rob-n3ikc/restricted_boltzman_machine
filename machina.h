@@ -22,6 +22,19 @@ node();
 int serial;
 bool hidden_node;
 int sign;
+std::vector<void*> links;
+};
+
+
+
+class connect{
+
+public:
+connect( node*, node*); 
+node *h,*v;
+float weight;
+float e();
+bool dump(FILE *);
 };
 
 // hidden and public are differentiated so that a visible node can
@@ -41,17 +54,6 @@ public:
 };
 
 
-
-class connect{
-
-public:
-connect( node*, node*); 
-node *h,*v;
-float weight;
-float e();
-bool dump(FILE *);
-};
-
 class RBM {
 std::vector<node*> hidden;
 std::vector<node*> visible;
@@ -61,6 +63,7 @@ bool line_parser(char*, int, FILE*);
 bool build(); //this can build in the absense of connections.
 public:
 bool build(int, int); //this can build in the absense of connections.
+bool initialize_links(); //
 RBM();
 ~RBM();
 bool input(FILE*);

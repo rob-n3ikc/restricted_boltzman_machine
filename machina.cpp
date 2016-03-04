@@ -1,5 +1,6 @@
 // the machine definition file.
 #include "machina.h"
+#include <cstring>
 
 using namespace std;
 
@@ -35,10 +36,10 @@ int RBM::tokenizer(  char **starts, char *data, int max)
 	cp = data;
 	while( *cp != ';' || *cp != '\0')
 	{
-		while(*cp < '0' && *cp != ';'){ *cp = '\0'; cp++;}
+		while(*cp < '-' && *cp != ';'){ *cp = '\0'; cp++;}
 		if( *cp == ';'){ *cp = '\0'; return inme;}
 		starts[inme++] = cp;
-		while( *cp >= '0' && *cp != ';') cp++;
+		while( *cp >= '-' && *cp != ';') cp++;
 		if( inme == max) return -inme;
 	}
 	return -1;
@@ -54,15 +55,16 @@ bool RBM::input( FILE *what)
 	{
 	int inme;
 	inme = tokenizer(tokens, line, max_token);
-/*
 // show it works.
-	printf("%d\n", inme);
-	if( inme > 0)
-	for( int i=0; i< inme; i++)
-		printf("%s\n", tokens[i]);
-*/
+//	printf("%d\n", inme);
+//	if( inme > 0)
+//	for( int i=0; i< inme; i++)
+//		printf("%d %s ", i,tokens[i]);
+//	printf("\n");
 	if( strcmp("build", tokens[0]) >0){ return build(); }
-	if( strcmp("hidden", tokens[0]) >0) {
+	char *cp;
+	cp = tokens[0];
+	if( strcmp("hidden", tokens[0]) ==0) {
 		if( inme <2) {fprintf(stderr,"hidden needs two arguments\n"); exit(0);}
 
 		int c;
@@ -77,7 +79,7 @@ bool RBM::input( FILE *what)
 		continue;
 
 	}// hidden
-	if( strcmp("visible", tokens[0]) >0) {
+	if( strcmp("visible", tokens[0]) ==0) {
 		if( inme <2) {fprintf(stderr,"visible needs two arguments\n"); exit(0);}
 
 		int c;
@@ -92,13 +94,16 @@ bool RBM::input( FILE *what)
 		continue;
 
 	}// visible 
-	if( strcmp("connect", tokens[0]) >0) {
+	if( strcmp("connect", tokens[0]) ==0) {
 		if( inme <6) {fprintf(stderr,"visible needs six arguments\n"); exit(0);}
 		int a,b;
 		sscanf(tokens[2],"%d",&a);
 		sscanf(tokens[4],"%d",&b);
 		if( *tokens[1] == 'h' && *tokens[3] == 'v')
+		{
 		links.push_back( new connect(hidden[a],visible[b]));
+ 		hidden[a]->links.push_back(links[links.size()-1]);
+		}
 
 		else if( *tokens[1] == 'h' && *tokens[3] == 'h')
 		links.push_back( new connect(hidden[a],hidden[b]));
@@ -109,7 +114,6 @@ bool RBM::input( FILE *what)
 		float w;
 		sscanf(tokens[5],"%f",&w);
 		links[links.size()-1]->weight = w;
-
 	
 	}//connect
 	}
@@ -141,6 +145,7 @@ bool RBM::build()
 		{
 		links.push_back( new connect(hidden[i],visible[j]));
 		links[links.size()-1]->weight = 0.;
+		hidden[i]->links.push_back( links[links.size()-1]);
 		}
 
 	}
@@ -171,15 +176,17 @@ float RBM::energy(int inme, int *data)
 	{
 		ep = 0.;
 		em = 0.;
-	for( int j=0; j< links.size(); j++)
+	for( int j=0; j< hidden[i]->links.size(); j++)
 	{
-		if( links[j]->h->serial != i) continue;
-		if( !links[j]->h->hidden_node) continue;
+		connect* link;
+		link = (connect*)hidden[i]->links[j];
+//		if( links[j]->h->serial != i) continue;
+//		if( !links[j]->h->hidden_node) continue;
 // energy is summed over every link for +/- 
 		hidden[i]->sign = 1;
-		ep += links[j]->e();
+		ep += link->e();
 		hidden[i]->sign = -1;
-		em += links[j]->e();
+		em += link->e();
 // a fast way to do this with quadratic only  is
 //               float et;
 //               et = links[j]->e();
@@ -200,26 +207,30 @@ bool RBM::train(float beta, int inme, int *data)
 	float e;
 	float edot;
 	e = energy( inme, data);
+//	printf("the energy is %f \n",e);
 // at this stage all the signs are at the minimum energy.
 	for( int i=0; i< hidden.size(); i++)
 	{
-	for( int j=0; j< links.size(); j++)
+	for( int j=0; j< hidden[i]->links.size(); j++)
 	{
-		float ep, fp,fm, damp;
+		connect *link;
+		link = (connect*)hidden[i]->links[j];
+		float ep,em, fp,fm, damp;
 		int dot;
-		if( links[j]->h->serial != i) continue;
-		if( !links[j]->h->hidden_node) continue;
-		ep = links[j]->e()*beta;
+//		if( links[j]->h->serial != i) continue;
+//		if( !links[j]->h->hidden_node) continue;
+		ep = link->e()*beta;
+		em = -ep;
 //		if( ep > 20.) ep = 20.;
 //		if( ep < -20.) ep = -20.;
-		dot = links[j]->h->sign * links[j]->v->sign;
+		dot = link->h->sign * links[j]->v->sign;
 		fp = exp( ep);
-		fm = exp( -ep);  // safer
+		fm = exp( em);  // safer
 		damp = -(fp-fm)/(fp+fm);
 		edot = (float)dot;
-//		printf("%f %f %d %f\n", damp, ep,dot, edot + damp);
+	//	printf("%f %f %d %f\n", damp, ep,dot, edot + damp);
 		if( dot > 0) damp = -damp;
-		links[j]->weight -= edot+damp;
+		link->weight -= edot+damp;
 	}//j
 	}//i
 	return true;
@@ -258,7 +269,12 @@ float connect::e()
 }
 bool connect::dump(FILE* where)
 {
-// this is the RBM case, 
-//TODO add the others
+	if( h->hidden_node && !v->hidden_node)
 	fprintf(where,"connect h %d v %d %f;\n", h->serial, v->serial, weight);
+	if( h->hidden_node &&  v->hidden_node)
+	fprintf(where,"connect h %d h %d %f;\n", h->serial, h->serial, weight);
+	if( !h->hidden_node && !v->hidden_node)
+	fprintf(where,"connect v %d v %d %f;\n", h->serial, v->serial, weight);
+	if( !h->hidden_node &&  v->hidden_node)
+	fprintf(where,"connect v %d h %d %f;\n", h->serial, v->serial, weight);
 }
