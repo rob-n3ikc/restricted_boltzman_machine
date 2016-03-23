@@ -137,6 +137,23 @@ bool RBM::build(int nhide, int nvis )
 		}
 		build();
 }
+// convolutional version
+bool RBM::build(int nhide, int nvis ,int spread)
+{
+		for( int i=0; i< nhide; i++)
+		{
+			hidden.push_back(new hidden_node);
+			hidden[i]->serial = i;
+			hidden[i]->hidden_node = true;
+		}
+		for( int i=0; i< nvis; i++)
+		{
+			visible.push_back(new visible_node);
+			visible[i]->serial = i;
+			visible[i]->hidden_node = false;
+		}
+		build(spread);
+}
 bool RBM::build()
 {
 	for( int i=0; i< hidden.size() ; i++)
@@ -144,6 +161,49 @@ bool RBM::build()
 		for( int j=0; j< visible.size(); j++)
 		{
 		links.push_back( new connect(hidden[i],visible[j]));
+		links[links.size()-1]->weight = 0.;
+		hidden[i]->links.push_back( links[links.size()-1]);
+		}
+
+	}
+//	for( int i=0; i< hidden.size()-1 ; i++)
+//	{
+//		for( int j=i+1; j< hidden.size(); j++)
+//		{
+//		links.push_back( new connect(hidden[i],hidden[j]));
+//		links[links.size()-1]->weight = 0.;
+//		hidden[i]->links.push_back( links[links.size()-1]);
+//		}
+//	}
+/*
+// This code  enjsures easd node is initialized differently
+	for( int i=0; i< hidden.size() ; i++)
+	{
+		int j;
+		j = i % hidden[i]->links.size();
+		connect *link;
+		link = (connect*)hidden[i]->links[j];
+		link->weight = 1.;
+	}
+*/
+
+}
+// convolutional version
+bool RBM::build(int spread)
+{
+	int delta;
+	delta = hidden.size()/spread;
+	if( delta < 1) delta = 1;
+	for( int i=0; i< hidden.size() ; i++)
+	{
+		for( int j=0; j< visible.size(); j++)
+//		for( int j=0; j< spread; j++)
+		{
+		int k;
+		k = j+i*delta;
+		if( k < 0) k += visible.size();
+		if( k >= visible.size()) k -= visible.size();
+		links.push_back( new connect(hidden[i],visible[k]));
 		links[links.size()-1]->weight = 0.;
 		hidden[i]->links.push_back( links[links.size()-1]);
 		}
@@ -200,16 +260,62 @@ float RBM::energy(int inme, int *data)
 	return e;
 }
 
+float RBM::best_expert_energy(int inme, int *data)
+{
+// there is a design tradeoff here
+// if every hidden node needs all its connections then there is
+// a nhidden*nvisible memory requirement
+// instead we can just loop over the connections and continue as needed.
+	if( visible.size() != inme) return 0.;
+
+	float e,ep,em;
+	float ebest ;
+	ebest = 10.e10;
+	e = 0.;
+	for( int i=0; i< visible.size(); i++)
+		visible[i]->sign = data[i]; // this can be replaced by a callback.
+	for( int i=0; i< hidden.size(); i++)
+	{
+		ep = 0.;
+		em = 0.;
+	for( int j=0; j< hidden[i]->links.size(); j++)
+	{
+		connect* link;
+		link = (connect*)hidden[i]->links[j];
+//		if( links[j]->h->serial != i) continue;
+//		if( !links[j]->h->hidden_node) continue;
+// energy is summed over every link for +/- 
+		hidden[i]->sign = 1;
+		ep += link->e();
+		hidden[i]->sign = -1;
+		em += link->e();
+// a fast way to do this with quadratic only  is
+//               float et;
+//               et = links[j]->e();
+//               ep += et; em -= et;
+// but that may not generalize well
+//
+	}//j
+                if( em < ebest) ebest = em;
+                if( ep < ebest) ebest = ep;
+		if( em < ep){ e+= em; hidden[i]->sign = -1;}
+		else {e += ep; hidden[i]->sign = 1;}
+	}//i
+	return ebest;
+}
+
 
 bool RBM::train(float beta, int inme, int *data)
 {
+	static int count = 0;
 	if( visible.size() != inme) return false;
 	float e;
 	float edot;
 	e = energy( inme, data);
-//	printf("the energy is %f \n",e);
 // at this stage all the signs are at the minimum energy.
-	for( int i=0; i< hidden.size(); i++)
+///	for( int i=0; i< hidden.size(); i++)
+	int i;
+	i = (count++)%hidden.size();
 	{
 	for( int j=0; j< hidden[i]->links.size(); j++)
 	{
@@ -219,18 +325,62 @@ bool RBM::train(float beta, int inme, int *data)
 		int dot;
 //		if( links[j]->h->serial != i) continue;
 //		if( !links[j]->h->hidden_node) continue;
-		ep = link->e()*beta;
+// Plus/Minus is arbitrary here
+		ep = link->e()*beta *hidden[i]->sign;
 		em = -ep;
 //		if( ep > 20.) ep = 20.;
 //		if( ep < -20.) ep = -20.;
 		dot = link->h->sign * links[j]->v->sign;
 		fp = exp( ep);
 		fm = exp( em);  // safer
-		damp = -(fp-fm)/(fp+fm);
+		damp =  (fp-fm)/(fp+fm);
 		edot = (float)dot;
-	//	printf("%f %f %d %f\n", damp, ep,dot, edot + damp);
-		if( dot > 0) damp = -damp;
+//		printf("%f %f %d %f\n", damp, ep,dot, edot + damp);
+//		damp *= dot;
+		damp *= dot*hidden[i]->sign;
 		link->weight -= edot+damp;
+//		link->weight -= edot;
+	}//j
+	}//i
+	return true;
+}
+
+bool RBM::train(int i,float beta, int inme, int *data)
+{
+//	static int count = 0;
+	if( visible.size() != inme) return false;
+	float e;
+	float edot;
+	e = energy( inme, data);
+// at this stage all the signs are at the minimum energy.
+//	for( int i=0; i< hidden.size(); i++)
+//	int i;
+//	i = (count++)%hidden.size();
+	i = i % hidden.size();
+	{
+	for( int j=0; j< hidden[i]->links.size(); j++)
+	{
+		connect *link;
+		link = (connect*)hidden[i]->links[j];
+		float ep,em, fp,fm, damp;
+		int dot;
+//		if( links[j]->h->serial != i) continue;
+//		if( !links[j]->h->hidden_node) continue;
+// Plus/Minus is arbitrary here
+		ep = link->e()*beta *hidden[i]->sign;
+		em = -ep;
+//		if( ep > 20.) ep = 20.;
+//		if( ep < -20.) ep = -20.;
+		dot = link->h->sign * links[j]->v->sign;
+		fp = exp( ep);
+		fm = exp( em);  // safer
+		damp =  (fp-fm)/(fp+fm);
+		edot = (float)dot;
+//		printf("%f %f %d %f\n", damp, ep,dot, edot + damp);
+//		damp *= dot;
+		damp *= dot*hidden[i]->sign;
+		link->weight -= edot+damp;
+//		link->weight -= edot;
 	}//j
 	}//i
 	return true;
@@ -269,10 +419,11 @@ float connect::e()
 }
 bool connect::dump(FILE* where)
 {
+// h and v are virtual here
 	if( h->hidden_node && !v->hidden_node)
 	fprintf(where,"connect h %d v %d %f;\n", h->serial, v->serial, weight);
 	if( h->hidden_node &&  v->hidden_node)
-	fprintf(where,"connect h %d h %d %f;\n", h->serial, h->serial, weight);
+	fprintf(where,"connect h %d h %d %f;\n", h->serial, v->serial, weight);
 	if( !h->hidden_node && !v->hidden_node)
 	fprintf(where,"connect v %d v %d %f;\n", h->serial, v->serial, weight);
 	if( !h->hidden_node &&  v->hidden_node)

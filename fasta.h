@@ -8,12 +8,12 @@
 class fasta{
 FILE *the_file;
 int which_window;
-int codec[5][20];
 public:
 fasta(FILE *);
 ~fasta();
 bool rewind_me();
 bool get_next();
+bool window(int, char*);
 bool encode(int, int, int*);  // window, size of encoding, data
 bool decode(int, int, int*, char*);  // window, size of encoding, data
 char seq[4000];
