@@ -61,8 +61,10 @@ std::vector<connect*> links;
 int tokenizer( char** ,char*, int);
 bool line_parser(char*, int, FILE*);
 bool build(); //this can build in the absense of connections.
+bool build(int); //this can build in the absense of connections. convolutional
 public:
 bool build(int, int); //this can build in the absense of connections.
+bool build(int, int, int); //this can build in the absense of connections. convolutional
 bool initialize_links(); //
 RBM();
 ~RBM();
@@ -70,7 +72,12 @@ bool input(FILE*);
 bool dump(FILE*);
 
 bool train(float, int, int*);
+bool train_o_matic(float, int, int*);
+bool CD_train(float, int, int*);
+bool accuracy_train(float, int, int*);
+bool train(int, float, int, int*);
 float energy( int, int*);
+float best_expert_energy( int, int*);
 float fillin( int, int*); // zeros are assigned to +- one return the best energy found. 
 
 };
